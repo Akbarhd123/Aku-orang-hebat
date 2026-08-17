@@ -1,6 +1,6 @@
 --[[
 ================================================================================
-  👑 KING AKBAR - INDO HANGOUT HUB (WINDUI + SILENT MODE AFK) 👑
+  👑 KING AKBAR - INDO HANGOUT HUB (WINDUI + SILENT MODE + INFO TAB) 👑
 ================================================================================
 --]]
 
@@ -45,7 +45,8 @@ local Services = {
     TweenSvc          = game:GetService("TweenService"),
     ReplicatedStorage = game:GetService("ReplicatedStorage"),
     CoreGui           = game:GetService("CoreGui"),
-    VirtualUser       = game:GetService("VirtualUser")
+    VirtualUser       = game:GetService("VirtualUser"),
+    HttpService       = game:GetService("HttpService") -- Ditambahkan untuk Tab Info
 }
 
 local LocalPlayer = Services.Players.LocalPlayer
@@ -176,6 +177,7 @@ local Window = WindUI:CreateWindow({
 -- ============================================================================
 -- // 4. TABS
 -- ============================================================================
+local InfoTab = Window:Tab({ Title = "Info", Icon = "info", Border = true })
 local MainTab = Window:Tab({ Title = "Main", Icon = "anchor", Border = true })
 local AutomaticTab = Window:Tab({ Title = "Automatic", Icon = "shopping-cart", Border = true })
 local SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings", Border = true })
@@ -196,7 +198,7 @@ local lagiNungguIkan = false
 local sellTimer = 0
 local antiAfkConnection = nil
 
--- FITUR 1: Aimbot Minigame (Target Ngikutin Merah)
+-- FITUR 1: Aimbot Minigame
 pcall(function()
     Services.RunService:UnbindFromRenderStep("AimbotMancing")
 end)
@@ -212,7 +214,7 @@ Services.RunService:BindToRenderStep("AimbotMancing", 2000, function()
     end
 end)
 
--- FITUR 2: Smart Auto-Throw (Bypass Remote)
+-- FITUR 2: Smart Auto-Throw
 task.spawn(function()
     while task.wait(0.5) do
         if getgenv().AutoFishing then
@@ -239,7 +241,7 @@ task.spawn(function()
     end
 end)
 
--- FITUR 3: Smart Auto-Sell (Sistem Timer per Menit)
+-- FITUR 3: Smart Auto-Sell
 task.spawn(function()
     while task.wait(1) do 
         if getgenv().AutoSell then
@@ -295,11 +297,61 @@ end
 -- // 6. UI CONTENT (SECTIONS & TOGGLES)
 -- ============================================================================
 
+-- [ INFO TAB ] --
+local memberCount = "N/A"
+local onlineCount = "N/A"
+
+local function fetchDiscordInfo()
+    local req = request or http_request or (syn and syn.request)
+    if not req then return end
+    local ok, res = pcall(function()
+        return req({
+            Url     = "https://discord.com/api/v9/invites/XmWf3YQPpZ?with_counts=true",
+            Method  = "GET",
+            Headers = { ["User-Agent"] = "Mozilla/5.0" }
+        })
+    end)
+    if ok and res and res.StatusCode == 200 then
+        local ok2, data = pcall(function() return Services.HttpService:JSONDecode(res.Body) end)
+        if ok2 and data then
+            memberCount = tostring(data.approximate_member_count   or "N/A")
+            onlineCount = tostring(data.approximate_presence_count or "N/A")
+        end
+    end
+end
+fetchDiscordInfo()
+
+local ServerInfo = InfoTab:Paragraph({
+    Title         = "King Vypers | Official",
+    Desc          = "• Member Count: " .. memberCount .. "\n• Online Count: " .. onlineCount,
+    Image         = "rbxassetid://107726435417936",
+    Thumbnail     = "rbxassetid://83197533072664",
+    ThumbnailSize = 80,
+    Buttons = {
+        {
+            Title    = "Copy Discord Invite",
+            Color    = Color3.fromHex("#5707AB"),
+            Icon     = "link",
+            Callback = function()
+                if setclipboard then setclipboard("https://discord.gg/XmWf3YQPpZ") end
+            end
+        },
+        {
+            Title    = "Update Info",
+            Icon     = "refresh-cw",
+            Callback = function()
+                fetchDiscordInfo()
+                ServerInfo:SetDesc("• Member Count: " .. memberCount .. "\n• Online Count: " .. onlineCount)
+            end
+        }
+    }
+})
+
 -- [ MAIN TAB ] --
 local FishingSection = MainTab:Section({ Title = "Auto Fishing Settings" })
 
 FishingSection:Toggle({
-    Title    = "Auto Fishing (AFK)",
+    Title    = "Auto Fishing",
     Icon     = "zap",
     State    = false,
     Callback = function(state)
@@ -366,4 +418,6 @@ Window:EditOpenButton({
 
 Window:SetIconSize(47)
 WindUI:SetTheme("dark")
-MainTab:Select()
+
+-- Membuka Tab Info sebagai halaman utama saat UI pertama kali muncul
+InfoTab:Select()
