@@ -17,7 +17,7 @@ do
     if ok and result then
         WindUI = result
     else
-        warn("[King Akbar] WindUI gagal load: " .. tostring(result))
+        -- Silent mode: tidak ada output console
         return
     end
 end
@@ -46,7 +46,8 @@ local Services = {
     ReplicatedStorage = game:GetService("ReplicatedStorage"),
     CoreGui           = game:GetService("CoreGui"),
     VirtualUser       = game:GetService("VirtualUser"),
-    HttpService       = game:GetService("HttpService") -- Ditambahkan untuk Tab Info
+    HttpService       = game:GetService("HttpService"),
+    Workspace         = game:GetService("Workspace")
 }
 
 local LocalPlayer = Services.Players.LocalPlayer
@@ -187,16 +188,59 @@ local SettingsTab = Window:Tab({ Title = "Settings", Icon = "settings", Border =
 -- ============================================================================
 local RodEvent = Services.ReplicatedStorage:WaitForChild("Events"):WaitForChild("RemoteEvent"):WaitForChild("Rod")
 local SellEvent = Services.ReplicatedStorage:WaitForChild("Events"):WaitForChild("RemoteFunction"):WaitForChild("SellFish")
+local BackpackEvent = Services.ReplicatedStorage:WaitForChild("Events"):WaitForChild("RemoteFunction"):WaitForChild("Backpack")
+local PickaxeEvent = Services.ReplicatedStorage:WaitForChild("Events"):WaitForChild("RemoteEvent"):WaitForChild("Pickaxe")
+local SellCrystalEvent = Services.ReplicatedStorage:WaitForChild("Events"):WaitForChild("RemoteFunction"):WaitForChild("SellCrystal")
+
 local ReelingGui = LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("Reeling")
 
 getgenv().AutoFishing = false
 getgenv().AutoSell = false
 getgenv().AutoSellInterval = 1 
+getgenv().AutoSellCrystal = false
+getgenv().AutoSellCrystalInterval = 1
 getgenv().AntiAFK = false
+getgenv().AutoMining = false
+getgenv().MaxCrystalHP = 10
+getgenv().AutoFavorite = false
+getgenv().AutoFavoriteMinWeight = 25
+getgenv().MiningHitDelay = 1.6
+getgenv().MiningWalkSpeed = 16
+getgenv().MiningStopDistance = 5
 
 local lagiNungguIkan = false
 local sellTimer = 0
+local sellCrystalTimer = 0
 local antiAfkConnection = nil
+local currentMiningTarget = nil
+local currentMiningAnim = nil
+
+-- ID Animasi Mining
+local MiningAnimationId = "rbxassetid://138639123067444"
+
+-- ═══════════════════════════════════════════════════════════
+--  FUNGSI ANIMASI MINING
+-- ═══════════════════════════════════════════════════════════
+local function PlayMiningAnimation(character)
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then
+        animator = Instance.new("Animator")
+        animator.Parent = humanoid
+    end
+
+    if currentMiningAnim then
+        currentMiningAnim:Stop()
+    end
+
+    local animation = Instance.new("Animation")
+    animation.AnimationId = MiningAnimationId
+    currentMiningAnim = animator:LoadAnimation(animation)
+    currentMiningAnim:Play()
+end
 
 -- FITUR 1: Aimbot Minigame
 pcall(function()
@@ -214,34 +258,63 @@ Services.RunService:BindToRenderStep("AimbotMancing", 2000, function()
     end
 end)
 
--- FITUR 2: Smart Auto-Throw
+-- FITUR 2: Smart Auto-Throw (TANPA EVENT "Equipped")
 task.spawn(function()
     while task.wait(0.5) do
         if getgenv().AutoFishing then
             local character = LocalPlayer.Character
-            local pegangPancingan = character and character:FindFirstChildOfClass("Tool")
-            
-            if not pegangPancingan then
+            if not character then continue end
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if not humanoid then continue end
+            local backpack = LocalPlayer.Backpack
+
+            -- Cari rod di backpack atau sudah dipegang
+            local rod = nil
+            local currentTool = character:FindFirstChildOfClass("Tool")
+            if currentTool and currentTool.Name:lower():find("rod") then
+                rod = currentTool
+            else
+                for _, tool in pairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") and tool.Name:lower():find("rod") then
+                        rod = tool
+                        break
+                    end
+                end
+            end
+
+            if not rod then
                 lagiNungguIkan = false
                 continue
             end
 
+            -- Equip rod jika belum dipegang
+            if not currentTool or currentTool ~= rod then
+                humanoid:EquipTool(rod)
+                task.wait(0.5)
+            end
+
+            -- Jika ReelingGui aktif (sedang reeling), set flag menunggu false
             if ReelingGui.Enabled then
                 lagiNungguIkan = false
             else
+                -- Jika tidak sedang reeling dan belum lempar, lempar sekarang
                 if not lagiNungguIkan then
-                    task.wait(1.5) 
-                    RodEvent:FireServer("Equipped")
-                    task.wait(0.2)
-                    RodEvent:FireServer("Throw")
-                    lagiNungguIkan = true 
+                    task.wait(1.5)
+                    -- Hanya kirim Throw
+                    pcall(function()
+                        RodEvent:FireServer("Throw")
+                    end)
+                    lagiNungguIkan = true
                 end
             end
+        else
+            -- Reset saat AutoFishing dimatikan
+            lagiNungguIkan = false
         end
     end
 end)
 
--- FITUR 3: Smart Auto-Sell
+-- FITUR 3: Smart Auto-Sell (Ikan)
 task.spawn(function()
     while task.wait(1) do 
         if getgenv().AutoSell then
@@ -256,6 +329,25 @@ task.spawn(function()
             end
         else
             sellTimer = 0 
+        end
+    end
+end)
+
+-- FITUR 3b: Smart Auto-Sell Crystal
+task.spawn(function()
+    while task.wait(1) do
+        if getgenv().AutoSellCrystal then
+            sellCrystalTimer = sellCrystalTimer + 1
+            local batasWaktu = getgenv().AutoSellCrystalInterval * 60
+
+            if sellCrystalTimer >= batasWaktu then
+                sellCrystalTimer = 0
+                pcall(function()
+                    SellCrystalEvent:InvokeServer("SellCrystal", "Sell All")
+                end)
+            end
+        else
+            sellCrystalTimer = 0
         end
     end
 end)
@@ -293,8 +385,184 @@ local function ToggleAntiAFK(state)
     end
 end
 
+-- ═══════════════════════════════════════════════════════════
+-- FITUR 5: AUTO FAVORIT
+-- ═══════════════════════════════════════════════════════════
+task.spawn(function()
+    while task.wait(2) do
+        if getgenv().AutoFavorite then
+            local character = LocalPlayer.Character
+            local backpack = LocalPlayer.Backpack
+
+            local allTools = {}
+            if character then
+                for _, tool in pairs(character:GetChildren()) do
+                    if tool:IsA("Tool") then table.insert(allTools, tool) end
+                end
+            end
+            if backpack then
+                for _, tool in pairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") then table.insert(allTools, tool) end
+                end
+            end
+
+            for _, tool in pairs(allTools) do
+                local weight = tonumber(tool.Name:match("%((%d+%.?%d*) Kg%)"))
+                local isFavorite = tool.Name:find("%(favorite%)") ~= nil
+
+                if weight and weight >= getgenv().AutoFavoriteMinWeight and not isFavorite then
+                    pcall(function()
+                        BackpackEvent:InvokeServer("ChangeFavoriteStatus", tool)
+                    end)
+                end
+            end
+        end
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- FITUR 6: AUTO MINING (BERJALAN + ANIMASI LANGSUNG HIT)
+-- ═══════════════════════════════════════════════════════════
+local function getCrystalHP(crystal)
+    local hp = crystal:GetAttribute("HP")
+    if hp == nil then
+        local hpObj = crystal:FindFirstChild("HP") or crystal:FindFirstChild("Health")
+        if hpObj and (hpObj:IsA("IntValue") or hpObj:IsA("NumberValue")) then
+            hp = hpObj.Value
+        end
+    end
+    return hp
+end
+
+local function getNearestCrystal()
+    local crystalsFolder = Services.Workspace:FindFirstChild("MapContent") and Services.Workspace.MapContent:FindFirstChild("Crystals")
+    if not crystalsFolder then return nil end
+
+    local character = LocalPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return nil end
+    local root = character.HumanoidRootPart
+
+    local nearest = nil
+    local nearestDist = math.huge
+
+    for _, crystal in pairs(crystalsFolder:GetChildren()) do
+        if crystal:IsA("BasePart") and crystal:IsDescendantOf(crystalsFolder) then
+            local hp = getCrystalHP(crystal)
+            if hp and hp < 10 then
+                continue
+            end
+
+            local mag = (crystal.Position - root.Position).Magnitude
+            if mag < nearestDist then
+                nearestDist = mag
+                nearest = crystal
+            end
+        end
+    end
+    return nearest
+end
+
+task.spawn(function()
+    while task.wait(1) do
+        if getgenv().AutoMining then
+            local character = LocalPlayer.Character
+            if not character or not character:FindFirstChild("HumanoidRootPart") then
+                task.wait(1)
+                continue
+            end
+
+            local root = character.HumanoidRootPart
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if not humanoid then continue end
+
+            local pickaxe = nil
+            for _, tool in pairs(LocalPlayer.Backpack:GetChildren()) do
+                if tool:IsA("Tool") and tool.Name:lower():find("pickaxe") then
+                    pickaxe = tool
+                    break
+                end
+            end
+            if not pickaxe and character:FindFirstChildOfClass("Tool") and character:FindFirstChildOfClass("Tool").Name:lower():find("pickaxe") then
+                pickaxe = character:FindFirstChildOfClass("Tool")
+            end
+
+            if not pickaxe then
+                task.wait(2)
+                continue
+            end
+
+            if humanoid and character:FindFirstChildOfClass("Tool") ~= pickaxe then
+                humanoid:EquipTool(pickaxe)
+                task.wait(0.5)
+            end
+
+            local target = currentMiningTarget
+            if not target or not target.Parent then
+                target = getNearestCrystal()
+                if not target then
+                    task.wait(3)
+                    continue
+                end
+                currentMiningTarget = target
+            end
+
+            humanoid.WalkSpeed = getgenv().MiningWalkSpeed or 16
+            local crystalPos = target.Position
+            local stopDistance = getgenv().MiningStopDistance or 5
+            local maxWaitTime = 10
+            local waitStart = tick()
+
+            humanoid:MoveTo(crystalPos)
+
+            local isNear = false
+            while tick() - waitStart < maxWaitTime and getgenv().AutoMining do
+                if not target.Parent then
+                    currentMiningTarget = nil
+                    break
+                end
+                local dist = (root.Position - crystalPos).Magnitude
+                if dist <= stopDistance then
+                    isNear = true
+                    break
+                end
+                task.wait(0.3)
+            end
+
+            if not isNear then
+                currentMiningTarget = nil
+                continue
+            end
+
+            humanoid:MoveTo(root.Position)
+            task.wait(0.2)
+
+            root.CFrame = CFrame.lookAt(root.Position, Vector3.new(crystalPos.X, root.Position.Y, crystalPos.Z))
+            task.wait(0.3)
+
+            local safetyCounter = 0
+            while target and target.Parent and getgenv().AutoMining and safetyCounter < 200 do
+                PlayMiningAnimation(character)
+                pcall(function()
+                    PickaxeEvent:FireServer("Hit")
+                end)
+
+                task.wait(getgenv().MiningHitDelay)
+                safetyCounter += 1
+
+                if not target.Parent then
+                    currentMiningTarget = nil
+                    break
+                end
+            end
+            currentMiningTarget = nil
+        else
+            currentMiningTarget = nil
+        end
+    end
+end)
+
 -- ============================================================================
--- // 6. UI CONTENT (SECTIONS & TOGGLES)
+-- // 6. UI CONTENT
 -- ============================================================================
 
 -- [ INFO TAB ] --
@@ -356,15 +624,70 @@ FishingSection:Toggle({
     State    = false,
     Callback = function(state)
         getgenv().AutoFishing = state
+        if not state then
+            lagiNungguIkan = false
+        end
+    end
+})
+
+-- AUTO MINING SECTION
+local MiningSection = MainTab:Section({ Title = "Auto Mining Settings" })
+
+MiningSection:Toggle({
+    Title    = "Auto Mining",
+    Icon     = "pickaxe",
+    State    = false,
+    Callback = function(state)
+        getgenv().AutoMining = state
+        currentMiningTarget = nil
+    end
+})
+
+MiningSection:Input({
+    Title    = "Walk Speed",
+    Icon     = "footprints",
+    Value    = tostring(getgenv().MiningWalkSpeed),
+    Placeholder = "Default: 16",
+    Callback = function(val)
+        local angka = tonumber(val)
+        if angka and angka > 0 then
+            getgenv().MiningWalkSpeed = angka
+        end
+    end
+})
+
+MiningSection:Input({
+    Title    = "Stop Distance (stud)",
+    Icon     = "ruler",
+    Value    = tostring(getgenv().MiningStopDistance),
+    Placeholder = "Default: 5",
+    Callback = function(val)
+        local angka = tonumber(val)
+        if angka and angka > 0 then
+            getgenv().MiningStopDistance = angka
+        end
+    end
+})
+
+MiningSection:Input({
+    Title    = "Hit Delay (detik)",
+    Icon     = "timer",
+    Value    = tostring(getgenv().MiningHitDelay),
+    Placeholder = "Contoh: 1.6",
+    Callback = function(val)
+        local angka = tonumber(val)
+        if angka and angka > 0 then
+            getgenv().MiningHitDelay = angka
+        end
     end
 })
 
 -- [ AUTOMATIC TAB ] --
-local SellSection = AutomaticTab:Section({ Title = "Automatic Sell Settings" })
+local SellFishSection = AutomaticTab:Section({ Title = "Auto Sell Ikan" })
 
-SellSection:Toggle({
-    Title    = "Automatic Sell All",
-    Icon     = "coins",
+SellFishSection:Toggle({
+    Title    = "Automatic Sell All Fish",
+    Icon     = "fish",
     State    = false,
     Callback = function(state)
         getgenv().AutoSell = state
@@ -374,7 +697,7 @@ SellSection:Toggle({
     end
 })
 
-SellSection:Input({
+SellFishSection:Input({
     Title    = "Interval Waktu (Menit)",
     Icon     = "clock",
     Value    = tostring(getgenv().AutoSellInterval),
@@ -384,6 +707,58 @@ SellSection:Input({
         if angka and angka > 0 then
             getgenv().AutoSellInterval = angka
             sellTimer = 0 
+        end
+    end
+})
+
+local SellCrystalSection = AutomaticTab:Section({ Title = "Auto Sell Crystal" })
+
+SellCrystalSection:Toggle({
+    Title    = "Automatic Sell All Crystal",
+    Icon     = "gem",
+    State    = false,
+    Callback = function(state)
+        getgenv().AutoSellCrystal = state
+        if state then
+            sellCrystalTimer = 0
+        end
+    end
+})
+
+SellCrystalSection:Input({
+    Title    = "Interval Waktu (Menit)",
+    Icon     = "clock",
+    Value    = tostring(getgenv().AutoSellCrystalInterval),
+    Placeholder = "Masukkan angka (menit)...",
+    Callback = function(val)
+        local angka = tonumber(val)
+        if angka and angka > 0 then
+            getgenv().AutoSellCrystalInterval = angka
+            sellCrystalTimer = 0
+        end
+    end
+})
+
+local AutoFavSection = AutomaticTab:Section({ Title = "Auto Favorite Settings" })
+
+AutoFavSection:Toggle({
+    Title    = "Auto Favorite",
+    Icon     = "star",
+    State    = false,
+    Callback = function(state)
+        getgenv().AutoFavorite = state
+    end
+})
+
+AutoFavSection:Input({
+    Title    = "Minimal Berat (Kg)",
+    Icon     = "scale",
+    Value    = tostring(getgenv().AutoFavoriteMinWeight),
+    Placeholder = "Contoh: 25",
+    Callback = function(val)
+        local angka = tonumber(val)
+        if angka and angka > 0 then
+            getgenv().AutoFavoriteMinWeight = angka
         end
     end
 })
@@ -401,7 +776,7 @@ GeneralSection:Toggle({
 })
 
 -- ============================================================================
--- // 7. OPEN BUTTON (KING AKBAR STYLE) & INIT
+-- // 7. OPEN BUTTON & INIT
 -- ============================================================================
 Window:EditOpenButton({
     Title           = "Open King Akbar",
